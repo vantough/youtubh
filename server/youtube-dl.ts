@@ -30,44 +30,18 @@ interface ProgressCallback {
 export async function getYouTubeVideoInfo(url: string): Promise<YouTubeDlVideoInfo> {
   try {
     // Get video info with available formats
-    console.log(`Getting video info for URL: ${url}`);
-    
-    // Updated options to help avoid bot detection
     const result = await youtubedl(url, {
       dumpSingleJson: true,
       noWarnings: true,
+      // Using proper properties for youtube-dl-exec
       preferFreeFormats: true,
-      cacheDir: './youtube-dl-cache',
-      // Add anti-bot detection options
-      cookies: './youtube-cookies.txt', // We'll create this file with default cookies
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      referer: 'https://www.youtube.com/',
-      sleepInterval: 5, // Add a delay between requests
-      maxSleepInterval: 10,
-      geoBypass: true, // Try to bypass geo-restrictions
-      geoBypassCountry: 'US',
-      // Timeout settings
-      socketTimeout: 30, // seconds
-      retries: 10
+      // Adding cache dir to improve speed
+      cacheDir: './youtube-dl-cache'
     });
-    
-    // Ensure we have proper video info
-    const videoInfo = result as unknown as YouTubeDlVideoInfo;
-    console.log(`Successfully retrieved info for video: ${videoInfo.title}`);
-    return videoInfo;
+
+    return result as unknown as YouTubeDlVideoInfo;
   } catch (error) {
     console.error("Error in youtube-dl:", error);
-    
-    // Provide a better error message for bot detection
-    if (error instanceof Error && 
-        (error.message.includes("Sign in to confirm you're not a bot") || 
-         error.message.includes("This video is not available") ||
-         error.message.includes("bot detection"))) {
-      
-      console.error("YouTube bot detection triggered - need to bypass protection");
-      throw new Error("YouTube's bot protection is active. Please try a different video, or try again later. This happens when YouTube detects automated access.");
-    }
-    
     throw new Error(`Failed to get video info: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 }
@@ -114,18 +88,7 @@ export async function downloadYouTubeVideo(
       // Enable all postprocessors
       embedSubs: false,
       // Additional debugging
-      verbose: true,
-      
-      // Add anti-bot detection options
-      cookies: './youtube-cookies.txt', // Use the same cookies file
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      referer: 'https://www.youtube.com/',
-      sleepInterval: 5, // Add a delay between requests
-      maxSleepInterval: 10,
-      geoBypass: true, // Try to bypass geo-restrictions
-      geoBypassCountry: 'US',
-      // Additional timeout settings
-      socketTimeout: 30 // seconds
+      verbose: true
     });
 
     if (!downloader.stdout || !downloader.stderr) {

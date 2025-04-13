@@ -52,29 +52,13 @@ export default function UrlInput({ onVideoFetched, onLoading, onError }: UrlInpu
       
       onVideoFetched(data);
     } catch (error) {
-      let errorMessage = error instanceof Error ? error.message : "Failed to fetch video information";
-      
-      // Check if it's a YouTube bot detection error
-      if (errorMessage.includes("bot protection") || 
-          errorMessage.includes("Sign in to confirm") || 
-          errorMessage.includes("not a bot")) {
-        
-        errorMessage = "YouTube's bot protection is active. Please try a different video, or try again in a few minutes. This happens when YouTube detects automated access patterns.";
-        
-        toast({
-          variant: "destructive",
-          title: "YouTube Bot Protection",
-          description: errorMessage,
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: errorMessage,
-        });
-      }
-      
+      const errorMessage = error instanceof Error ? error.message : "Failed to fetch video information";
       onError(errorMessage);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
+      });
     } finally {
       onLoading(false);
     }

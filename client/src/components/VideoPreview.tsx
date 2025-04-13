@@ -294,25 +294,11 @@ export default function VideoPreview({
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to start download";
-      console.error("Download error:", errorMessage);
-      
-      // Check if this is a YouTube bot protection error
-      if (errorMessage.includes("bot protection") || 
-          errorMessage.includes("Sign in to confirm") || 
-          errorMessage.includes("not a bot")) {
-        toast({
-          variant: "destructive",
-          title: "YouTube Bot Protection",
-          description: "YouTube has detected our application as automated traffic. Please try a different video or try again later."
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Download Error",
-          description: errorMessage,
-        });
-      }
-      
+      toast({
+        variant: "destructive",
+        title: "Download Error",
+        description: errorMessage,
+      });
       setIsDownloading(false);
       setShowProgress(false);
     }
