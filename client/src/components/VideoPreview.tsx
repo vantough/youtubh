@@ -68,16 +68,54 @@ export default function VideoPreview({
 
   const startDownloadEventSource = (downloadId: string) => {
     const eventSource = new EventSource(`/api/videos/download-progress/${downloadId}`);
+    let progressTimeout: NodeJS.Timeout | null = null;
+    let stuckCounter = 0;
+    
+    // Reset progress timeout
+    const resetProgressTimeout = () => {
+      if (progressTimeout) {
+        clearTimeout(progressTimeout);
+      }
+      
+      // If we're stuck at 0% for more than 30 seconds, show a helpful message
+      progressTimeout = setTimeout(() => {
+        if (stuckCounter >= 5) {
+          toast({
+            title: "Still working",
+            description: "The download is taking longer than expected. Please be patient...",
+            duration: 5000,
+          });
+        }
+        stuckCounter++;
+      }, 6000); // Check every 6 seconds
+    };
+    
+    // Start initial timeout
+    resetProgressTimeout();
     
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         console.log("EventSource data:", data);
+        
+        // If we get a non-zero progress, reset the stuck counter
+        if (data.percent > 0) {
+          stuckCounter = 0;
+        }
+        
+        // Reset timeout since we received a message
+        resetProgressTimeout();
+        
+        // Update the progress
         updateDownloadProgress(data.percent);
         
         if (data.percent >= 100) {
           console.log("Download reached 100%, closing event source");
           eventSource.close();
+          
+          if (progressTimeout) {
+            clearTimeout(progressTimeout);
+          }
           
           // Need to explicitly update states in a predictable order
           // This ensures React will properly re-render with the new state
@@ -115,6 +153,12 @@ export default function VideoPreview({
     eventSource.onerror = () => {
       console.error("EventSource error occurred");
       eventSource.close();
+      
+      // Clear any pending timeouts
+      if (progressTimeout) {
+        clearTimeout(progressTimeout);
+      }
+      
       setIsDownloading(false);
       toast({
         variant: "destructive",

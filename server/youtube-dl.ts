@@ -88,9 +88,7 @@ export async function downloadYouTubeVideo(
       // Enable all postprocessors
       embedSubs: false,
       // Additional debugging
-      verbose: true,
-      // Don't skip files that already exist
-      noOverwrites: false
+      verbose: true
     });
 
     if (!downloader.stdout || !downloader.stderr) {

@@ -132,35 +132,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/videos/download-progress/:downloadId", (req, res) => {
     const { downloadId } = req.params;
     
+    console.log(`Progress tracking started for download: ${downloadId}`);
+    
     // Set up headers for SSE
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
+    
+    // Check if download exists initially
+    const initialDownload = activeDownloads.get(downloadId);
+    if (!initialDownload) {
+      console.error(`Download ${downloadId} not found when starting progress tracking`);
+      res.write(`data: ${JSON.stringify({ error: "Download not found", percent: 0 })}\n\n`);
+      return res.end();
+    }
     
     // Function to send progress updates
     const sendProgress = () => {
       const download = activeDownloads.get(downloadId);
       
       if (!download) {
+        console.error(`Download ${downloadId} was lost during progress tracking`);
         clearInterval(interval);
-        res.write(`data: ${JSON.stringify({ error: "Download not found" })}\n\n`);
+        res.write(`data: ${JSON.stringify({ error: "Download was lost during processing", percent: 0 })}\n\n`);
         return res.end();
       }
       
+      // Send the current progress
       res.write(`data: ${JSON.stringify({ percent: download.percent })}\n\n`);
       
-      // If download is complete, end connection and clean up
+      // If download is complete, check the file and end connection
       if (download.percent >= 100) {
         clearInterval(interval);
+        console.log(`Download ${downloadId} reached 100%, checking file...`);
         
-        // Since we can't easily fix typescript types without major refactoring, 
-        // let's use a simpler approach that doesn't rely on awaiting getVideoInfo
+        // Check if the file actually exists
+        if (!fs.existsSync(download.downloadPath)) {
+          console.error(`Download file missing at completion: ${download.downloadPath}`);
+          res.write(`data: ${JSON.stringify({ 
+            error: "Download file was not created properly",
+            percent: 0
+          })}\n\n`);
+          return res.end();
+        }
+        
+        // Check if the file has content
+        try {
+          const stats = fs.statSync(download.downloadPath);
+          if (stats.size === 0) {
+            console.error(`Download file is empty: ${download.downloadPath}`);
+            res.write(`data: ${JSON.stringify({ 
+              error: "Download file is empty",
+              percent: 0
+            })}\n\n`);
+            return res.end();
+          }
+          
+          console.log(`Download file validated: ${download.downloadPath}, size: ${stats.size} bytes`);
+        } catch (error) {
+          console.error(`Error checking file stats: ${error}`);
+        }
+        
+        // Get the file name for the download
         storage.getVideoInfo(download.videoId)
           .then(videoInfo => {
             const fileName = videoInfo && videoInfo.title 
               ? `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.mp4` 
               : `youtube-video-${download.videoId}.mp4`;
               
+            console.log(`Sending completion event for ${downloadId} with filename: ${fileName}`);
+            
             // Send final event with download complete
             res.write(`data: ${JSON.stringify({ 
               percent: 100, 
@@ -171,7 +212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             res.end();
           })
           .catch(error => {
-            console.error("Error finalizing download:", error);
+            console.error(`Error finalizing download ${downloadId}:`, error);
             
             res.write(`data: ${JSON.stringify({ 
               percent: 100, 
@@ -182,7 +223,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             res.end();
           })
           .finally(() => {
+            // Keep the download info for a little while to allow the browser to request the file
             setTimeout(() => {
+              console.log(`Cleaning up download ${downloadId} from active downloads map`);
               activeDownloads.delete(downloadId);
             }, 5000);
           });
@@ -197,6 +240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     // Clean up on client disconnect
     req.on("close", () => {
+      console.log(`Client disconnected from progress updates for ${downloadId}`);
       clearInterval(interval);
     });
   });
