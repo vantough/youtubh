@@ -5,8 +5,6 @@ import { getYouTubeVideoInfo, downloadYouTubeVideo, formatDuration } from "./you
 import path from "path";
 import fs from "fs";
 import { nanoid } from "nanoid";
-import * as replitDb from "./replit-db";
-import { log } from "./vite";
 
 // Track active downloads and their progress
 const activeDownloads = new Map<string, {
@@ -22,13 +20,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const tempDir = path.join(process.cwd(), "temp");
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
-  }
-  
-  // Initialize database connection (no specific init needed for Replit DB)
-  try {
-    log("Replit database connection initialized", "db");
-  } catch (error) {
-    log(`Failed to initialize database: ${error instanceof Error ? error.message : "Unknown error"}`, "db");
   }
 
   // API route to get video info
@@ -257,61 +248,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // API route to serve downloaded file
   app.get("/api/videos/download/:downloadId", (req, res) => {
     const { downloadId } = req.params;
-    console.log(`Download request received for ID: ${downloadId}`);
-    
     const download = activeDownloads.get(downloadId);
+    
     if (!download) {
-      console.error(`Download ${downloadId} not found in active downloads map`);
-      return res.status(404).json({ error: "Download not found - please try downloading again" });
+      return res.status(404).json({ error: "Download not found" });
     }
     
     // Check if the file actually exists
     if (!fs.existsSync(download.downloadPath)) {
       console.error(`File not found at path: ${download.downloadPath}`);
-      
-      // Try finding the file with a similar name pattern
-      const fileDir = path.dirname(download.downloadPath);
-      const fileBaseName = path.basename(download.downloadPath);
-      const filePrefix = fileBaseName.split('-').slice(0, 2).join('-');
-      
-      console.log(`Looking for alternative files with prefix: ${filePrefix} in ${fileDir}`);
-      let alternativeFile = null;
-      
-      try {
-        const files = fs.readdirSync(fileDir);
-        // Find the most recent mp4 file matching the pattern
-        const matchingFiles = files
-          .filter(f => f.startsWith(filePrefix) && f.endsWith('.mp4') && !f.includes('.part-'))
-          .map(f => ({ name: f, stats: fs.statSync(path.join(fileDir, f)) }))
-          .sort((a, b) => b.stats.mtime.getTime() - a.stats.mtime.getTime());
-          
-        if (matchingFiles.length > 0) {
-          alternativeFile = path.join(fileDir, matchingFiles[0].name);
-          console.log(`Found alternative file: ${alternativeFile}`);
-        }
-      } catch (err: unknown) {
-        console.error(`Error looking for alternative files: ${err instanceof Error ? err.message : "Unknown error"}`);
-      }
-      
-      if (!alternativeFile) {
-        return res.status(404).json({ error: "Download file not found on server - please try downloading again" });
-      }
-      
-      // Use the alternative file instead
-      download.downloadPath = alternativeFile;
+      return res.status(404).json({ error: "Download file not found on server" });
     }
     
     // Get file size to check if it's a valid file
-    let stats;
-    try {
-      stats = fs.statSync(download.downloadPath);
-      if (stats.size === 0) {
-        console.error(`File is empty: ${download.downloadPath}`);
-        return res.status(500).json({ error: "Downloaded file is empty - please try downloading again" });
-      }
-    } catch (err: unknown) {
-      console.error(`Error checking file stats: ${err instanceof Error ? err.message : "Unknown error"}`);
-      return res.status(500).json({ error: "Error accessing download file - please try downloading again" });
+    const stats = fs.statSync(download.downloadPath);
+    if (stats.size === 0) {
+      return res.status(500).json({ error: "Downloaded file is empty" });
     }
     
     console.log(`Serving file: ${download.downloadPath}, size: ${stats.size} bytes`);
@@ -323,201 +275,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fileName = `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
         }
         
-        console.log(`Setting filename for download: ${fileName}`);
-        
         // Set headers for file download
         res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
         res.setHeader("Content-Type", "video/mp4");
         res.setHeader("Content-Length", stats.size);
         
-        // Create a read stream with appropriate error handling
+        // Stream file to client
         const fileStream = fs.createReadStream(download.downloadPath);
         
         // Handle errors during streaming
         fileStream.on('error', (err) => {
           console.error(`Error streaming file: ${err.message}`);
           if (!res.headersSent) {
-            res.status(500).json({ error: "Error streaming file - please try downloading again" });
+            res.status(500).json({ error: "Error streaming file" });
           } else {
             res.end();
           }
         });
         
-        // Set up timeout for the response
-        res.setTimeout(120000, () => {
-          console.log('Response timeout - client may have disconnected');
-          res.end();
-        });
-        
         // Pipe the file to the response
         fileStream.pipe(res);
         
-        // When download completes, clean up
+        // Delete file and clean up after sending
         fileStream.on("end", () => {
           console.log(`Finished streaming file: ${download.downloadPath}`);
-          
           // Use setTimeout to ensure file is fully sent before deletion
-          // This is important for large files
           setTimeout(() => {
             try {
-              // Check if we should delete the file (not for now - keep for debugging)
-              // if (fs.existsSync(download.downloadPath)) {
-              //   fs.unlinkSync(download.downloadPath);
-              //   console.log(`Deleted file: ${download.downloadPath}`);
-              // }
-              
-              // We'll keep the download in the active downloads map for a short while
-              // in case the user needs to download again
-              setTimeout(() => {
-                activeDownloads.delete(downloadId);
-                console.log(`Removed download ${downloadId} from active downloads map`);
-              }, 300000); // Remove from active downloads after 5 minutes
-              
+              if (fs.existsSync(download.downloadPath)) {
+                fs.unlinkSync(download.downloadPath);
+                console.log(`Deleted file: ${download.downloadPath}`);
+              }
+              activeDownloads.delete(downloadId);
             } catch (error) {
-              console.error("Error in post-download cleanup:", error);
+              console.error("Error cleaning up download:", error);
             }
-          }, 5000); // Wait 5 seconds before cleanup
+          }, 1000);
         });
       })
       .catch(error => {
         console.error("Error serving download:", error);
         return res.status(500).json({ error: "Failed to prepare download" });
       });
-  });
-
-  // API route to get a list of available downloaded files
-  app.get("/api/videos/available-files", (req, res) => {
-    try {
-      const tempDir = path.join(process.cwd(), "temp");
-      const files = fs.readdirSync(tempDir)
-        .filter(file => file.endsWith('.mp4') && !file.includes('.part-') && 
-                !file.includes('.f') && !file.includes('.temp'))
-        .map(file => {
-          const stats = fs.statSync(path.join(tempDir, file));
-          const fileSizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
-          
-          return {
-            name: file,
-            size: `${fileSizeInMB} MB`
-          };
-        })
-        .sort((a, b) => {
-          // Sort by newest first (based on timestamp in filename)
-          const timeA = parseInt(a.name.split('-')[2]?.split('.')[0] || '0', 10);
-          const timeB = parseInt(b.name.split('-')[2]?.split('.')[0] || '0', 10);
-          return timeB - timeA;
-        });
-      
-      res.json({ files });
-    } catch (error) {
-      console.error("Error getting available files:", error instanceof Error ? error.message : "Unknown error");
-      res.status(500).json({ error: "Failed to get available files" });
-    }
-  });
-  
-  // API route to directly download a specific file
-  app.get("/api/videos/direct-download/:filename", (req, res) => {
-    try {
-      const { filename } = req.params;
-      const filePath = path.join(process.cwd(), "temp", filename);
-      
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: "File not found" });
-      }
-      
-      const stats = fs.statSync(filePath);
-      if (stats.size === 0) {
-        return res.status(500).json({ error: "File is empty" });
-      }
-      
-      console.log(`Direct serving file: ${filePath}, size: ${stats.size} bytes`);
-      
-      // Set headers for file download
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      res.setHeader("Content-Type", "video/mp4");
-      res.setHeader("Content-Length", stats.size);
-      
-      // Stream file to client
-      const fileStream = fs.createReadStream(filePath);
-      fileStream.pipe(res);
-      
-      // Don't delete the file after direct download
-    } catch (error) {
-      console.error("Error direct downloading file:", error instanceof Error ? error.message : "Unknown error");
-      res.status(500).json({ error: "Failed to download file" });
-    }
-  });
-  
-  // API route to upload a file to Replit database
-  app.post("/api/videos/upload-to-db", async (req, res) => {
-    try {
-      const { filename } = req.body;
-      
-      if (!filename) {
-        return res.status(400).json({ error: "Filename is required" });
-      }
-      
-      const filePath = path.join(process.cwd(), "temp", filename);
-      
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: "File not found" });
-      }
-      
-      // Generate a unique key for the file
-      const fileKey = `video-${nanoid()}-${Date.now()}`;
-      
-      // Upload file to Replit Database
-      const success = await replitDb.storeFile(filePath, fileKey);
-      
-      if (!success) {
-        return res.status(500).json({ error: "Failed to upload file to database" });
-      }
-      
-      log(`Successfully uploaded file to database with key: ${fileKey}`, "db");
-      res.json({ success: true, fileKey });
-    } catch (error) {
-      log(`Error uploading file to database: ${error instanceof Error ? error.message : "Unknown error"}`, "db");
-      res.status(500).json({ error: "Failed to upload file to database" });
-    }
-  });
-  
-  // API route to list all files in Replit database
-  app.get("/api/videos/db-files", async (req, res) => {
-    try {
-      const keys = await replitDb.listFiles();
-      res.json({ keys });
-    } catch (error) {
-      log(`Error listing files from database: ${error instanceof Error ? error.message : "Unknown error"}`, "db");
-      res.status(500).json({ error: "Failed to list files from database" });
-    }
-  });
-  
-  // API route to download a file from Replit database
-  app.get("/api/videos/db-download/:fileKey", async (req, res) => {
-    try {
-      const { fileKey } = req.params;
-      
-      // Get file from Replit Database
-      const fileData = await replitDb.getFile(fileKey);
-      
-      if (!fileData) {
-        return res.status(404).json({ error: "File not found in database" });
-      }
-      
-      // Decode base64 data to binary
-      const fileBuffer = Buffer.from(fileData.data, 'base64');
-      
-      // Set headers for file download
-      res.setHeader("Content-Disposition", `attachment; filename="${fileData.fileName}"`);
-      res.setHeader("Content-Type", fileData.contentType);
-      res.setHeader("Content-Length", fileBuffer.length);
-      
-      // Send the file data
-      res.send(fileBuffer);
-    } catch (error) {
-      log(`Error downloading file from database: ${error instanceof Error ? error.message : "Unknown error"}`, "db");
-      res.status(500).json({ error: "Failed to download file from database" });
-    }
   });
 
   return httpServer;
