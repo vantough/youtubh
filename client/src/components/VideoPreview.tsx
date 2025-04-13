@@ -70,33 +70,50 @@ export default function VideoPreview({
     const eventSource = new EventSource(`/api/videos/download-progress/${downloadId}`);
     
     eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      updateDownloadProgress(data.percent);
-      
-      if (data.percent >= 100) {
-        eventSource.close();
-        setIsDownloading(false);
+      try {
+        const data = JSON.parse(event.data);
+        console.log("EventSource data:", data);
+        updateDownloadProgress(data.percent);
         
-        // If the server indicates completion with a filename, save it for download button
-        if (data.completed && data.fileName) {
-          setDownloadComplete(true);
-          setDownloadId(downloadId);
-          setFileName(data.fileName);
-          toast({
-            title: "Processing complete",
-            description: "Your video is ready to download to your computer.",
-          });
-        } else {
-          // Keep showing progress if no download URL yet
-          toast({
-            title: "Download complete on server",
-            description: "Click the download button to save to your computer.",
-          });
+        if (data.percent >= 100) {
+          console.log("Download reached 100%, closing event source");
+          eventSource.close();
+          
+          // Need to explicitly update states in a predictable order
+          // This ensures React will properly re-render with the new state
+          setTimeout(() => {
+            setIsDownloading(false);
+            setShowProgress(false);
+            
+            // Always show the download button when the server-side download is complete
+            setDownloadComplete(true);
+            setDownloadId(downloadId);
+            
+            // If the server indicates completion with a filename, save it
+            if (data.fileName) {
+              setFileName(data.fileName);
+            }
+            
+            console.log("Updated download state:", { 
+              downloadComplete: true, 
+              downloadId,
+              fileName: data.fileName || 'youtube-video.mp4'
+            });
+            
+            toast({
+              title: "Processing complete",
+              description: "Your video is ready to download to your computer. Click the green button below.",
+              duration: 5000,
+            });
+          }, 300);
         }
+      } catch (error) {
+        console.error("Error parsing event data:", error);
       }
     };
     
     eventSource.onerror = () => {
+      console.error("EventSource error occurred");
       eventSource.close();
       setIsDownloading(false);
       toast({
@@ -266,9 +283,9 @@ export default function VideoPreview({
           </div>
           
           {downloadComplete && downloadId && (
-            <div className="mt-3 flex items-center text-green-600">
-              <CheckCircle className="h-5 w-5 mr-2" />
-              <span className="text-sm font-medium">Processing complete! Click the green button to save to your computer.</span>
+            <div className="mt-3 p-2 rounded bg-green-50 border border-green-200 flex items-center text-green-600">
+              <CheckCircle className="h-5 w-5 mr-2 flex-shrink-0" />
+              <span className="text-sm font-medium">Video processing complete! Click the green button above to download to your computer.</span>
             </div>
           )}
         </div>
