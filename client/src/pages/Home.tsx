@@ -6,12 +6,14 @@ import Instructions from "@/components/Instructions";
 import Footer from "@/components/Footer";
 import LoadingIndicator from "@/components/LoadingIndicator";
 import ErrorMessage from "@/components/ErrorMessage";
+import BotProtectionAlert from "@/components/BotProtectionAlert";
 import { VideoInfo } from "@/types/video";
 
 export default function Home() {
   const [videoData, setVideoData] = useState<VideoInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isBotProtection, setIsBotProtection] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [isDownloading, setIsDownloading] = useState(false);
 
@@ -21,6 +23,12 @@ export default function Home() {
   };
 
   const handleError = (errorMessage: string) => {
+    // Check if this is a YouTube bot protection error
+    const isBotProtectionError = 
+      errorMessage.includes("bot protection") || 
+      errorMessage.includes("YouTube's bot protection");
+      
+    setIsBotProtection(isBotProtectionError);
     setError(errorMessage);
     setVideoData(null);
   };
@@ -42,7 +50,9 @@ export default function Home() {
 
         {isLoading && <LoadingIndicator />}
         
-        {error && <ErrorMessage error={error} />}
+        {isBotProtection && <BotProtectionAlert />}
+        
+        {error && !isBotProtection && <ErrorMessage error={error} />}
         
         {videoData && (
           <VideoPreview 

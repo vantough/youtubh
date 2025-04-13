@@ -4,7 +4,6 @@ import {
   AlertTitle
 } from "@/components/ui/alert";
 import { AlertCircle, ExternalLink } from "lucide-react";
-import { Link } from "@/components/ui/link";
 
 export default function BotProtectionAlert() {
   return (
@@ -25,7 +24,7 @@ export default function BotProtectionAlert() {
           <li>Use a shorter video (smaller videos are less likely to trigger protection)</li>
         </ul>
         <p>
-          <Link 
+          <a 
             href="https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp" 
             target="_blank"
             rel="noopener noreferrer"
@@ -33,7 +32,7 @@ export default function BotProtectionAlert() {
           >
             Learn more about YouTube bot detection
             <ExternalLink className="ml-1 h-3 w-3" />
-          </Link>
+          </a>
         </p>
       </AlertDescription>
     </Alert>
