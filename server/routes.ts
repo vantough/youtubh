@@ -206,9 +206,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { downloadId } = req.params;
     const download = activeDownloads.get(downloadId);
     
-    if (!download || download.percent < 100) {
-      return res.status(404).json({ error: "Download not found or not completed" });
+    if (!download) {
+      return res.status(404).json({ error: "Download not found" });
     }
+    
+    // Check if the file actually exists
+    if (!fs.existsSync(download.downloadPath)) {
+      console.error(`File not found at path: ${download.downloadPath}`);
+      return res.status(404).json({ error: "Download file not found on server" });
+    }
+    
+    // Get file size to check if it's a valid file
+    const stats = fs.statSync(download.downloadPath);
+    if (stats.size === 0) {
+      return res.status(500).json({ error: "Downloaded file is empty" });
+    }
+    
+    console.log(`Serving file: ${download.downloadPath}, size: ${stats.size} bytes`);
     
     storage.getVideoInfo(download.videoId)
       .then(videoInfo => {
@@ -219,25 +233,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Set headers for file download
         res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-        res.setHeader("Content-Type", "application/octet-stream");
+        res.setHeader("Content-Type", "video/mp4");
+        res.setHeader("Content-Length", stats.size);
         
         // Stream file to client
         const fileStream = fs.createReadStream(download.downloadPath);
+        
+        // Handle errors during streaming
+        fileStream.on('error', (err) => {
+          console.error(`Error streaming file: ${err.message}`);
+          if (!res.headersSent) {
+            res.status(500).json({ error: "Error streaming file" });
+          } else {
+            res.end();
+          }
+        });
+        
+        // Pipe the file to the response
         fileStream.pipe(res);
         
         // Delete file and clean up after sending
         fileStream.on("end", () => {
-          try {
-            fs.unlinkSync(download.downloadPath);
-            activeDownloads.delete(downloadId);
-          } catch (error) {
-            console.error("Error cleaning up download:", error);
-          }
+          console.log(`Finished streaming file: ${download.downloadPath}`);
+          // Use setTimeout to ensure file is fully sent before deletion
+          setTimeout(() => {
+            try {
+              if (fs.existsSync(download.downloadPath)) {
+                fs.unlinkSync(download.downloadPath);
+                console.log(`Deleted file: ${download.downloadPath}`);
+              }
+              activeDownloads.delete(downloadId);
+            } catch (error) {
+              console.error("Error cleaning up download:", error);
+            }
+          }, 1000);
         });
       })
       .catch(error => {
         console.error("Error serving download:", error);
-        return res.status(500).json({ error: "Failed to serve download" });
+        return res.status(500).json({ error: "Failed to prepare download" });
       });
   });
 

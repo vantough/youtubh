@@ -1,6 +1,7 @@
 import youtubedl from "youtube-dl-exec";
 import { VideoInfo } from "../shared/schema";
 import fs from "fs";
+import path from "path";
 
 interface YouTubeDlVideoInfo {
   id: string;
@@ -58,6 +59,15 @@ export async function downloadYouTubeVideo(
     console.log(`Output path: ${outputPath}`);
     
     // Start downloading with progress tracking
+    // Ensure temp directory exists
+    try {
+      if (!fs.existsSync(path.dirname(outputPath))) {
+        fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      }
+    } catch (error) {
+      console.error("Error ensuring temp directory exists:", error);
+    }
+    
     // When downloading, we need to specify that we want both video and audio
     const downloader = youtubedl.exec(url, {
       output: outputPath,
@@ -69,12 +79,18 @@ export async function downloadYouTubeVideo(
       postprocessorArgs: "ffmpeg:-c:v copy -c:a aac -b:a 192k",
       // Cache to improve speed
       cacheDir: './youtube-dl-cache',
-      // Add rate limit to make it more stable
+      // Avoid rate limiting errors
       limitRate: '2M',
-      // Add retry options
+      // Allow retries
       retries: 10,
-      // Log verbose information for debugging
-      verbose: true
+      // Don't remove intermediate files on error to help debugging
+      keepFragments: true,
+      // Enable all postprocessors
+      embedSubs: false,
+      // Additional debugging
+      verbose: true,
+      // Don't skip files that already exist
+      noOverwrites: false
     });
 
     if (!downloader.stdout || !downloader.stderr) {
