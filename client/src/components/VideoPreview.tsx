@@ -6,7 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { apiRequest } from "@/lib/queryClient";
 import { VideoInfo, VideoFormat } from "@/types/video";
 import { useToast } from "@/hooks/use-toast";
-import { DownloadIcon, ClockIcon, EyeIcon } from "lucide-react";
+import { DownloadIcon, ClockIcon, EyeIcon, CheckCircle } from "lucide-react";
 
 interface VideoPreviewProps {
   videoData: VideoInfo;
@@ -26,6 +26,9 @@ export default function VideoPreview({
   const [selectedResolution, setSelectedResolution] = useState("");
   const [selectedFormat, setSelectedFormat] = useState<VideoFormat | null>(null);
   const [showProgress, setShowProgress] = useState(false);
+  const [downloadComplete, setDownloadComplete] = useState(false);
+  const [downloadId, setDownloadId] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Set initial resolution when video data loads
@@ -73,11 +76,23 @@ export default function VideoPreview({
       if (data.percent >= 100) {
         eventSource.close();
         setIsDownloading(false);
-        setShowProgress(false);
-        toast({
-          title: "Download complete",
-          description: "Your video has been downloaded successfully.",
-        });
+        
+        // If the server indicates completion with a filename, save it for download button
+        if (data.completed && data.fileName) {
+          setDownloadComplete(true);
+          setDownloadId(downloadId);
+          setFileName(data.fileName);
+          toast({
+            title: "Processing complete",
+            description: "Your video is ready to download to your computer.",
+          });
+        } else {
+          // Keep showing progress if no download URL yet
+          toast({
+            title: "Download complete on server",
+            description: "Click the download button to save to your computer.",
+          });
+        }
       }
     };
     
@@ -94,8 +109,45 @@ export default function VideoPreview({
     return eventSource;
   };
 
+  const handleSaveToComputer = () => {
+    if (!downloadId) return;
+    
+    // Create an anchor element and trigger download
+    const downloadUrl = `/api/videos/download/${downloadId}`;
+    
+    // Use an anchor to trigger the download
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = fileName || 'youtube-video.mp4'; // Use filename from server or fallback
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Reset download state for next download
+    setDownloadComplete(false);
+    setDownloadId(null);
+    setFileName(null);
+    setShowProgress(false);
+    
+    toast({
+      title: "Download started",
+      description: "Your video download should start automatically.",
+    });
+  };
+  
   const handleDownload = async () => {
+    // If download is already complete, just trigger browser download
+    if (downloadComplete && downloadId) {
+      handleSaveToComputer();
+      return;
+    }
+    
     if (!selectedFormat || isDownloading) return;
+    
+    // Reset previous download info
+    setDownloadComplete(false);
+    setDownloadId(null);
+    setFileName(null);
     
     setIsDownloading(true);
     setShowProgress(true);
@@ -114,6 +166,7 @@ export default function VideoPreview({
       }
       
       if (data.downloadId) {
+        setDownloadId(data.downloadId);
         const eventSource = startDownloadEventSource(data.downloadId);
         
         // Clean up event source when component unmounts
@@ -185,14 +238,24 @@ export default function VideoPreview({
           </div>
           
           <div className="flex flex-col sm:flex-row sm:items-center">
-            <Button 
-              className="bg-[#065FD4] hover:bg-blue-700"
-              onClick={handleDownload}
-              disabled={isDownloading}
-            >
-              <DownloadIcon className="h-5 w-5 mr-2" />
-              <span>Download</span>
-            </Button>
+            {downloadComplete && downloadId ? (
+              <Button 
+                className="bg-green-600 hover:bg-green-700"
+                onClick={handleSaveToComputer}
+              >
+                <DownloadIcon className="h-5 w-5 mr-2" />
+                <span>Save to your computer</span>
+              </Button>
+            ) : (
+              <Button 
+                className="bg-[#065FD4] hover:bg-blue-700"
+                onClick={handleDownload}
+                disabled={isDownloading}
+              >
+                <DownloadIcon className="h-5 w-5 mr-2" />
+                <span>{isDownloading ? "Processing..." : "Download"}</span>
+              </Button>
+            )}
             
             <div className="mt-3 sm:mt-0 sm:ml-4 text-gray-600">
               <span className="text-sm">File size: </span>
@@ -201,6 +264,13 @@ export default function VideoPreview({
               </span>
             </div>
           </div>
+          
+          {downloadComplete && downloadId && (
+            <div className="mt-3 flex items-center text-green-600">
+              <CheckCircle className="h-5 w-5 mr-2" />
+              <span className="text-sm font-medium">Processing complete! Click the green button to save to your computer.</span>
+            </div>
+          )}
         </div>
       </div>
       
