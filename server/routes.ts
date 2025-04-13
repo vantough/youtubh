@@ -448,5 +448,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // API route to upload a file to Replit database
+  app.post("/api/videos/upload-to-db", async (req, res) => {
+    try {
+      const { filename } = req.body;
+      
+      if (!filename) {
+        return res.status(400).json({ error: "Filename is required" });
+      }
+      
+      const filePath = path.join(process.cwd(), "temp", filename);
+      
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      
+      // Generate a unique key for the file
+      const fileKey = `video-${nanoid()}-${Date.now()}`;
+      
+      // Upload file to Replit Database
+      const success = await replitDb.storeFile(filePath, fileKey);
+      
+      if (!success) {
+        return res.status(500).json({ error: "Failed to upload file to database" });
+      }
+      
+      log(`Successfully uploaded file to database with key: ${fileKey}`, "db");
+      res.json({ success: true, fileKey });
+    } catch (error) {
+      log(`Error uploading file to database: ${error instanceof Error ? error.message : "Unknown error"}`, "db");
+      res.status(500).json({ error: "Failed to upload file to database" });
+    }
+  });
+  
+  // API route to list all files in Replit database
+  app.get("/api/videos/db-files", async (req, res) => {
+    try {
+      const keys = await replitDb.listFiles();
+      res.json({ keys });
+    } catch (error) {
+      log(`Error listing files from database: ${error instanceof Error ? error.message : "Unknown error"}`, "db");
+      res.status(500).json({ error: "Failed to list files from database" });
+    }
+  });
+  
+  // API route to download a file from Replit database
+  app.get("/api/videos/db-download/:fileKey", async (req, res) => {
+    try {
+      const { fileKey } = req.params;
+      
+      // Get file from Replit Database
+      const fileData = await replitDb.getFile(fileKey);
+      
+      if (!fileData) {
+        return res.status(404).json({ error: "File not found in database" });
+      }
+      
+      // Decode base64 data to binary
+      const fileBuffer = Buffer.from(fileData.data, 'base64');
+      
+      // Set headers for file download
+      res.setHeader("Content-Disposition", `attachment; filename="${fileData.fileName}"`);
+      res.setHeader("Content-Type", fileData.contentType);
+      res.setHeader("Content-Length", fileBuffer.length);
+      
+      // Send the file data
+      res.send(fileBuffer);
+    } catch (error) {
+      log(`Error downloading file from database: ${error instanceof Error ? error.message : "Unknown error"}`, "db");
+      res.status(500).json({ error: "Failed to download file from database" });
+    }
+  });
+
   return httpServer;
 }
