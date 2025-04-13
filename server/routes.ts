@@ -21,6 +21,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
   }
+  
+  // Set up periodic cleanup of temp directory
+  const cleanupTempFiles = () => {
+    console.log("Running scheduled temp directory cleanup...");
+    try {
+      // Get all files in temp directory
+      const files = fs.readdirSync(tempDir);
+      
+      // Get current active download paths to avoid deleting in-use files
+      const activeFilePaths = new Set<string>();
+      activeDownloads.forEach(download => {
+        activeFilePaths.add(download.downloadPath);
+      });
+      
+      let deletedCount = 0;
+      let totalSize = 0;
+      
+      // Check each file
+      for (const file of files) {
+        const filePath = path.join(tempDir, file);
+        
+        // Skip if this is an active download
+        if (activeFilePaths.has(filePath)) {
+          console.log(`Skipping active download: ${file}`);
+          continue;
+        }
+        
+        try {
+          // Get file stats
+          const stats = fs.statSync(filePath);
+          
+          // Only delete files older than 30 minutes (1800000ms)
+          const fileAge = Date.now() - stats.mtimeMs;
+          if (fileAge > 1800000) {
+            totalSize += stats.size;
+            fs.unlinkSync(filePath);
+            deletedCount++;
+            console.log(`Deleted old temp file: ${file} (${Math.round(stats.size / 1024)} KB, ${Math.round(fileAge / 60000)} minutes old)`);
+          }
+        } catch (error) {
+          console.error(`Error processing temp file ${file}:`, error);
+        }
+      }
+      
+      if (deletedCount > 0) {
+        console.log(`Cleanup complete: Removed ${deletedCount} files, freed ${Math.round(totalSize / (1024 * 1024))} MB of space`);
+      } else {
+        console.log("No files needed cleanup");
+      }
+    } catch (error) {
+      console.error("Error during temp directory cleanup:", error);
+    }
+  };
+  
+  // Run cleanup on startup
+  cleanupTempFiles();
+  
+  // Set up interval to clean temp files every 15 minutes
+  const cleanupInterval = setInterval(cleanupTempFiles, 15 * 60 * 1000);
 
   // API route to get video info
   app.post("/api/videos/info", async (req, res) => {
@@ -415,5 +474,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
   });
 
+  // Set up cleanup for the interval when server shuts down
+  httpServer.on('close', () => {
+    console.log("Server shutting down, clearing temp file cleanup interval");
+    clearInterval(cleanupInterval);
+  });
+  
   return httpServer;
 }
