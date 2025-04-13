@@ -1,0 +1,10 @@
+# Netscape HTTP Cookie File
+# This is a generated cookie file to help bypass YouTube's bot detection.
+# This file is used by youtube-dl when making requests to YouTube.
+# Format: domain name path secure expiry name value
+
+.youtube.com	TRUE	/	FALSE	1744670000	VISITOR_INFO1_LIVE	4F4fLZQmwk8
+.youtube.com	TRUE	/	TRUE	1744670000	GPS	1
+.youtube.com	TRUE	/	TRUE	1744670000	YSC	BiCUU3jmwk8
+.youtube.com	TRUE	/	FALSE	1744670000	PREF	f1=50000000
+.youtube.com	TRUE	/	TRUE	1744670000	CONSENT	YES+cb
