@@ -147,30 +147,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (download.percent >= 100) {
         clearInterval(interval);
         
-        // Get video info to determine file extension
-        const videoInfo = storage.getVideoInfo(download.videoId);
-        
-        if (videoInfo) {
-          // We don't need to find the format here since we've already determined the file path
-          // Just use mp4 as default extension
-          const extension = "mp4";
+        // Since we can't easily fix typescript types without major refactoring, 
+        // let's use a simpler approach that doesn't rely on awaiting getVideoInfo
+        storage.getVideoInfo(download.videoId)
+          .then(videoInfo => {
+            const fileName = videoInfo && videoInfo.title 
+              ? `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.mp4` 
+              : `youtube-video-${download.videoId}.mp4`;
+              
+            // Send final event with download complete
+            res.write(`data: ${JSON.stringify({ 
+              percent: 100, 
+              fileName,
+              completed: true 
+            })}\n\n`);
+            
+            res.end();
+          })
+          .catch(error => {
+            console.error("Error finalizing download:", error);
+            
+            res.write(`data: ${JSON.stringify({ 
+              percent: 100, 
+              fileName: `youtube-video-${download.videoId}.mp4`,
+              completed: true 
+            })}\n\n`);
+            
+            res.end();
+          })
+          .finally(() => {
+            setTimeout(() => {
+              activeDownloads.delete(downloadId);
+            }, 5000);
+          });
           
-          // Generate file name
-          const fileName = `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.${extension}`;
-          
-          // Send final event with download complete
-          res.write(`data: ${JSON.stringify({ 
-            percent: 100, 
-            fileName,
-            completed: true 
-          })}\n\n`);
-        }
-        
-        setTimeout(() => {
-          activeDownloads.delete(downloadId);
-        }, 5000);
-        
-        return res.end();
+        return; // Don't end response here, it will be ended in the promise chain
       }
     };
     
@@ -193,31 +204,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(404).json({ error: "Download not found or not completed" });
     }
     
-    // Determine content type and file name
-    const videoInfo = storage.getVideoInfo(download.videoId);
-    if (!videoInfo) {
-      return res.status(404).json({ error: "Video information not found" });
-    }
-    
-    const fileName = `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
-    
-    // Set headers for file download
-    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-    res.setHeader("Content-Type", "application/octet-stream");
-    
-    // Stream file to client
-    const fileStream = fs.createReadStream(download.downloadPath);
-    fileStream.pipe(res);
-    
-    // Delete file and clean up after sending
-    fileStream.on("end", () => {
-      try {
-        fs.unlinkSync(download.downloadPath);
-        activeDownloads.delete(downloadId);
-      } catch (error) {
-        console.error("Error cleaning up download:", error);
-      }
-    });
+    storage.getVideoInfo(download.videoId)
+      .then(videoInfo => {
+        let fileName = `youtube-video-${download.videoId}.mp4`;
+        if (videoInfo && videoInfo.title) {
+          fileName = `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
+        }
+        
+        // Set headers for file download
+        res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+        res.setHeader("Content-Type", "application/octet-stream");
+        
+        // Stream file to client
+        const fileStream = fs.createReadStream(download.downloadPath);
+        fileStream.pipe(res);
+        
+        // Delete file and clean up after sending
+        fileStream.on("end", () => {
+          try {
+            fs.unlinkSync(download.downloadPath);
+            activeDownloads.delete(downloadId);
+          } catch (error) {
+            console.error("Error cleaning up download:", error);
+          }
+        });
+      })
+      .catch(error => {
+        console.error("Error serving download:", error);
+        return res.status(500).json({ error: "Failed to serve download" });
+      });
   });
 
   return httpServer;
