@@ -100,6 +100,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Start the download process
+      // Start the download process. The progress callback will be used to update the
+      // progress for the client. Note: Download isn't truly complete at 100%.
+      // We need to keep track of both download completion AND file processing.
       downloadYouTubeVideo(
         videoId, 
         formatId, 
@@ -109,14 +112,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const download = activeDownloads.get(downloadId);
           if (download) {
             console.log(`Download ${downloadId} progress: ${progress.percent}%`);
+            
+            // For the progress from 0-100%, spread it across 0-90% for the user,
+            // so we reserve the last 10% for the ffmpeg merging process
+            let adjustedPercent = progress.percent;
+            
+            if (progress.percent === 100) {
+              // When at 100%, we're actually at 90% (audio/video downloaded but not merged)
+              adjustedPercent = 90;
+              console.log(`Download finished, but still merging audio/video. Setting display progress to ${adjustedPercent}%`);
+            } else if (progress.percent > 0) {
+              // Scale progress to fit in 0-90% range
+              adjustedPercent = Math.floor(progress.percent * 0.9);
+            }
+            
             activeDownloads.set(downloadId, {
               ...download,
-              percent: progress.percent
+              percent: adjustedPercent
             });
           }
         }
-      ).catch(error => {
+      )
+      .then(() => {
+        // This is called after the entire process is complete (download + ffmpeg merging)
+        console.log(`Download ${downloadId} is fully complete, including merging`);
+        
+        // Check if file exists and is valid
+        if (fs.existsSync(downloadPath)) {
+          const stats = fs.statSync(downloadPath);
+          console.log(`Final file size: ${stats.size} bytes`);
+          
+          if (stats.size > 0) {
+            // Now we can set the progress to 100% to indicate true completion
+            const download = activeDownloads.get(downloadId);
+            if (download) {
+              activeDownloads.set(downloadId, {
+                ...download,
+                percent: 100
+              });
+            }
+          }
+        }
+      })
+      .catch(error => {
         console.error(`Download ${downloadId} failed:`, error);
+        
+        // Set progress to -1 to indicate error
+        const download = activeDownloads.get(downloadId);
+        if (download) {
+          activeDownloads.set(downloadId, {
+            ...download,
+            percent: -1
+          });
+        }
       });
 
       res.json({ downloadId });

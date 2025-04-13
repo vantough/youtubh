@@ -386,7 +386,14 @@ export default function VideoPreview({
                 disabled={isDownloading}
               >
                 <DownloadIcon className="h-5 w-5 mr-2" />
-                <span>{isDownloading ? "Processing..." : "Download"}</span>
+                <span>
+                  {isDownloading 
+                    ? downloadProgress < 90 
+                      ? "Downloading..." 
+                      : "Merging audio & video..." 
+                    : "Download"
+                  }
+                </span>
               </Button>
             )}
             
@@ -410,10 +417,22 @@ export default function VideoPreview({
       {showProgress && (
         <div className="p-6 pt-0">
           <div className="mb-2 flex justify-between items-center">
-            <span className="text-sm font-medium text-gray-600">Download Progress</span>
+            <span className="text-sm font-medium text-gray-600">
+              {downloadProgress < 90 
+                ? "Downloading Video & Audio" 
+                : downloadProgress < 100 
+                  ? "Processing & Merging" 
+                  : "Complete!"}
+            </span>
             <span className="text-sm font-medium text-[#065FD4]">{downloadProgress}%</span>
           </div>
           <Progress value={downloadProgress} className="h-2.5" />
+          
+          {downloadProgress >= 90 && downloadProgress < 100 && (
+            <div className="mt-2 text-xs text-gray-500">
+              This may take a moment as we merge the audio and video tracks for the best quality.
+            </div>
+          )}
         </div>
       )}
     </Card>

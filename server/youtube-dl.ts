@@ -155,19 +155,62 @@ export async function downloadYouTubeVideo(
       }
     });
 
-    // Wait for download to complete
+    // Wait for download to complete - this is just the initial download, not the ffmpeg processing
     console.log("Waiting for download to complete...");
-    const result = await downloader;
-    console.log("Download process finished with result:", result);
     
-    // Set progress to 100% when done
-    progressCallback({
-      percent: 100,
-      downloaded_bytes: 0,
-      total_bytes: 0
+    // Create a promise that will resolve when the download process is actually complete
+    return new Promise<void>((resolve, reject) => {
+      // Set up a handler for when the process exits
+      downloader.on('close', (code) => {
+        console.log(`youtube-dl process exited with code ${code}`);
+        
+        // Check if file exists
+        try {
+          if (fs.existsSync(outputPath)) {
+            const stats = fs.statSync(outputPath);
+            
+            if (stats.size > 0) {
+              console.log(`Download successful! File exists at ${outputPath}, size: ${stats.size} bytes`);
+              
+              // Set progress to 100% when done
+              progressCallback({
+                percent: 100,
+                downloaded_bytes: stats.size,
+                total_bytes: stats.size
+              });
+              
+              console.log("Download completed successfully");
+              resolve(); // Resolve the promise when everything is done
+            } else {
+              console.error(`Download file exists but is empty: ${outputPath}`);
+              reject(new Error("Download file is empty"));
+            }
+          } else {
+            console.error(`Download file does not exist: ${outputPath}`);
+            reject(new Error("Download file not found"));
+          }
+        } catch (error) {
+          console.error("Error checking file:", error);
+          reject(error);
+        }
+      });
+      
+      // Handle errors during the download process
+      downloader.on('error', (error) => {
+        console.error("Download process error:", error);
+        reject(error);
+      });
+      
+      // Wait for the command to finish
+      downloader.then((result) => {
+        console.log("Download command finished with result:", result);
+        // We don't resolve here because we want to wait for the 'close' event
+        // which happens after any post-processing (like ffmpeg)
+      }).catch((error) => {
+        console.error("Download command failed:", error);
+        reject(error);
+      });
     });
-    
-    console.log("Download completed successfully");
   } catch (error) {
     console.error("Error downloading video:", error);
     throw new Error(`Failed to download video: ${error instanceof Error ? error.message : "Unknown error"}`);
