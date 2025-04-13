@@ -86,8 +86,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate a unique download ID
       const downloadId = nanoid();
       
-      // Create path for downloaded file
-      const downloadPath = path.join(tempDir, `${videoId}-${formatId}.download`);
+      // Create path for downloaded file with timestamp to avoid conflicts
+      const timestamp = Date.now();
+      const downloadPath = path.join(tempDir, `${videoId}-${formatId}-${timestamp}.mp4`);
+      
+      console.log(`Starting download process for ${videoId} with format ${formatId} to ${downloadPath}`);
       
       // Initialize download tracking
       activeDownloads.set(downloadId, {
@@ -105,13 +108,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Update the download progress
           const download = activeDownloads.get(downloadId);
           if (download) {
+            console.log(`Download ${downloadId} progress: ${progress.percent}%`);
             activeDownloads.set(downloadId, {
               ...download,
               percent: progress.percent
             });
           }
         }
-      );
+      ).catch(error => {
+        console.error(`Download ${downloadId} failed:`, error);
+      });
 
       res.json({ downloadId });
     } catch (error) {

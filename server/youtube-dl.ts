@@ -31,9 +31,10 @@ export async function getYouTubeVideoInfo(url: string): Promise<YouTubeDlVideoIn
     const result = await youtubedl(url, {
       dumpSingleJson: true,
       noWarnings: true,
-      noCallHome: true,
+      // Using proper properties for youtube-dl-exec
       preferFreeFormats: true,
-      youtubeSkipDashManifest: true,
+      // Adding cache dir to improve speed
+      cacheDir: './youtube-dl-cache'
     });
 
     return result as unknown as YouTubeDlVideoInfo;
@@ -52,11 +53,20 @@ export async function downloadYouTubeVideo(
   try {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
     
+    console.log(`Starting download for video ${videoId} with format ${formatId}`);
+    console.log(`Output path: ${outputPath}`);
+    
     // Start downloading with progress tracking
+    // youtubedl-exec has different flags than we expected
     const downloader = youtubedl.exec(url, {
       output: outputPath,
       format: formatId,
-      progress: true,
+      // Don't use progress flag as it doesn't exist
+      cacheDir: './youtube-dl-cache',
+      // Add rate limit to make it more stable
+      limitRate: '1M',
+      // Add retry options
+      retries: 10
     });
 
     if (!downloader.stdout || !downloader.stderr) {
@@ -66,11 +76,13 @@ export async function downloadYouTubeVideo(
     // Parse progress information from stdout
     downloader.stdout.on("data", (data: Buffer) => {
       const output = data.toString();
+      console.log(`youtube-dl stdout: ${output}`);
       
       // Parse progress percentage
       const progressMatch = output.match(/(\d+\.\d+)%/);
       if (progressMatch && progressMatch[1]) {
         const percent = parseFloat(progressMatch[1]);
+        console.log(`Download progress: ${percent}%`);
         
         // Parse downloaded bytes and total bytes if available
         const bytesMatch = output.match(/(\d+\.\d+)(\w+) of (\d+\.\d+)(\w+)/);
@@ -87,6 +99,8 @@ export async function downloadYouTubeVideo(
           
           downloaded_bytes = downloadValue * (units[downloadUnit] || 1);
           total_bytes = totalValue * (units[totalUnit] || 1);
+          
+          console.log(`Downloaded: ${downloaded_bytes} bytes of ${total_bytes} bytes`);
         }
         
         progressCallback({
@@ -102,8 +116,23 @@ export async function downloadYouTubeVideo(
       console.error(`youtube-dl stderr: ${data.toString()}`);
     });
 
+    // Log when the process ends
+    downloader.on('close', (code) => {
+      console.log(`youtube-dl process exited with code ${code}`);
+      
+      // Check if file exists
+      const fs = require('fs');
+      if (fs.existsSync(outputPath)) {
+        console.log(`Download file exists at ${outputPath}, size: ${fs.statSync(outputPath).size} bytes`);
+      } else {
+        console.error(`Download file doesn't exist at ${outputPath}`);
+      }
+    });
+
     // Wait for download to complete
-    await downloader;
+    console.log("Waiting for download to complete...");
+    const result = await downloader;
+    console.log("Download process finished with result:", result);
     
     // Set progress to 100% when done
     progressCallback({
@@ -111,6 +140,8 @@ export async function downloadYouTubeVideo(
       downloaded_bytes: 0,
       total_bytes: 0
     });
+    
+    console.log("Download completed successfully");
   } catch (error) {
     console.error("Error downloading video:", error);
     throw new Error(`Failed to download video: ${error instanceof Error ? error.message : "Unknown error"}`);
