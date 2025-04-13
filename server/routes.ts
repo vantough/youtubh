@@ -5,7 +5,7 @@ import { getYouTubeVideoInfo, downloadYouTubeVideo, formatDuration } from "./you
 import path from "path";
 import fs from "fs";
 import { nanoid } from "nanoid";
-import * as objectStorage from "./object-storage";
+import * as replitDb from "./replit-db";
 import { log } from "./vite";
 
 // Track active downloads and their progress
@@ -24,13 +24,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     fs.mkdirSync(tempDir, { recursive: true });
   }
   
-  // Initialize object storage bucket
+  // Initialize database connection (no specific init needed for Replit DB)
   try {
-    const bucketName = "youtube-downloader-bucket";
-    await objectStorage.createBucketIfNotExists(bucketName);
-    log(`Object storage bucket initialized: ${bucketName}`, "storage");
+    log("Replit database connection initialized", "db");
   } catch (error) {
-    log(`Failed to initialize object storage: ${error instanceof Error ? error.message : "Unknown error"}`, "storage");
+    log(`Failed to initialize database: ${error instanceof Error ? error.message : "Unknown error"}`, "db");
   }
 
   // API route to get video info
@@ -311,8 +309,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error(`File is empty: ${download.downloadPath}`);
         return res.status(500).json({ error: "Downloaded file is empty - please try downloading again" });
       }
-    } catch (err) {
-      console.error(`Error checking file stats: ${err.message}`);
+    } catch (err: unknown) {
+      console.error(`Error checking file stats: ${err instanceof Error ? err.message : "Unknown error"}`);
       return res.status(500).json({ error: "Error accessing download file - please try downloading again" });
     }
     
