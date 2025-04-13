@@ -1,5 +1,6 @@
 import youtubedl from "youtube-dl-exec";
 import { VideoInfo } from "../shared/schema";
+import fs from "fs";
 
 interface YouTubeDlVideoInfo {
   id: string;
@@ -120,12 +121,16 @@ export async function downloadYouTubeVideo(
     downloader.on('close', (code) => {
       console.log(`youtube-dl process exited with code ${code}`);
       
-      // Check if file exists
-      const fs = require('fs');
-      if (fs.existsSync(outputPath)) {
-        console.log(`Download file exists at ${outputPath}, size: ${fs.statSync(outputPath).size} bytes`);
-      } else {
-        console.error(`Download file doesn't exist at ${outputPath}`);
+      // Check if file exists using the imported fs
+      try {
+        if (fs.existsSync(outputPath)) {
+          const stats = fs.statSync(outputPath);
+          console.log(`Download file exists at ${outputPath}, size: ${stats.size} bytes`);
+        } else {
+          console.error(`Download file doesn't exist at ${outputPath}`);
+        }
+      } catch (error) {
+        console.error('Error checking file status:', error);
       }
     });
 
