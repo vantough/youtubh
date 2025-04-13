@@ -34,13 +34,36 @@ export default function VideoPreview({
   // Set initial resolution when video data loads
   useEffect(() => {
     if (videoData && videoData.formats && videoData.formats.length > 0) {
-      // Find a format with both video and audio (mp4)
-      const bestFormat = videoData.formats.find(format => 
-        format.ext === "mp4" && format.resolution && format.resolution.includes("720")
-      ) || videoData.formats[0];
+      // Get all MP4 formats with a resolution
+      const mp4Formats = videoData.formats.filter(format => 
+        format.ext === "mp4" && format.resolution
+      );
       
+      let bestFormat;
+      
+      // First try to find 720p format as a good default balance of quality and size
+      bestFormat = mp4Formats.find(format => format.resolution?.includes("720"));
+      
+      // If no 720p, try 480p
+      if (!bestFormat) {
+        bestFormat = mp4Formats.find(format => format.resolution?.includes("480"));
+      }
+      
+      // If still no match, try any mp4 with resolution
+      if (!bestFormat && mp4Formats.length > 0) {
+        bestFormat = mp4Formats[0];
+      }
+      
+      // Last resort, use any format
+      if (!bestFormat) {
+        bestFormat = videoData.formats[0];
+      }
+      
+      // Set the selected resolution
       setSelectedResolution(bestFormat.format_id);
       setSelectedFormat(bestFormat);
+      
+      console.log(`Selected format: ${bestFormat.format_id} - ${bestFormat.resolution || "Unknown"} (${bestFormat.ext})`);
     }
   }, [videoData]);
 
@@ -171,29 +194,63 @@ export default function VideoPreview({
   };
 
   const handleSaveToComputer = () => {
-    if (!downloadId) return;
+    if (!downloadId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Download ID is missing. Please try downloading again.",
+      });
+      return;
+    }
     
-    // Create an anchor element and trigger download
+    // Log the download attempt
+    console.log(`Initiating file download for ID: ${downloadId}, filename: ${fileName || 'youtube-video.mp4'}`);
+    
+    // Create the download URL with the specific download ID
     const downloadUrl = `/api/videos/download/${downloadId}`;
     
-    // Use an anchor to trigger the download
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = fileName || 'youtube-video.mp4'; // Use filename from server or fallback
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    // Reset download state for next download
-    setDownloadComplete(false);
-    setDownloadId(null);
-    setFileName(null);
-    setShowProgress(false);
-    
+    // Show a toast to inform user the download is starting
     toast({
-      title: "Download started",
-      description: "Your video download should start automatically.",
+      title: "Starting download",
+      description: "Preparing your file...",
     });
+    
+    // Use fetch to check if the file is available first
+    fetch(downloadUrl, { method: 'HEAD' })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        }
+        
+        // File exists and is accessible, trigger the download
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        // We let the server set the filename via Content-Disposition header
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Only reset download state after successfully starting the download
+        setTimeout(() => {
+          setDownloadComplete(false);
+          setDownloadId(null);
+          setFileName(null);
+          setShowProgress(false);
+        }, 2000); // Give a bit more time for download to start
+        
+        toast({
+          title: "Download started",
+          description: "Your video should begin downloading soon.",
+        });
+      })
+      .catch(error => {
+        console.error("Download error:", error);
+        toast({
+          variant: "destructive",
+          title: "Download Error",
+          description: "Could not download the file. The server may have removed it or it doesn't exist.",
+        });
+      });
   };
   
   const handleDownload = async () => {
@@ -283,14 +340,29 @@ export default function VideoPreview({
                 <SelectValue placeholder="Select resolution" />
               </SelectTrigger>
               <SelectContent>
+                {/* Filter to only show video formats that work well with audio merging */}
                 {videoData.formats
-                  .filter(format => format.ext === "mp4" || format.ext === "mp3")
+                  .filter(format => {
+                    // Include common video formats
+                    if (format.ext === "mp4" && format.resolution) {
+                      return true;
+                    }
+                    
+                    // Include high-quality audio formats
+                    if (format.ext === "m4a" && !format.resolution) {
+                      return true;
+                    }
+                    
+                    // For other formats, only show if they have a valid format ID and extension
+                    return format.format_id && (format.ext === "mp4" || format.ext === "webm");
+                  })
                   .map(format => (
                     <SelectItem 
                       key={format.format_id} 
                       value={format.format_id}
                     >
                       {format.resolution || "Audio only"} ({format.ext.toUpperCase()})
+                      {format.quality ? ` - ${format.quality}` : ''}
                     </SelectItem>
                   ))
                 }

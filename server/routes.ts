@@ -248,11 +248,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // API route to serve downloaded file
   app.get("/api/videos/download/:downloadId", (req, res) => {
     const { downloadId } = req.params;
-    const download = activeDownloads.get(downloadId);
+    console.log(`Download request received for ID: ${downloadId}`);
     
+    // First, check if this is a HEAD request (for checking if the file exists)
+    const isHeadRequest = req.method === 'HEAD';
+    console.log(`Request type: ${req.method}`);
+    
+    // Make sure we have a download with this ID
+    const download = activeDownloads.get(downloadId);
     if (!download) {
+      console.error(`Download ID not found: ${downloadId}`);
       return res.status(404).json({ error: "Download not found" });
     }
+    
+    console.log(`Download found with path: ${download.downloadPath}`);
     
     // Check if the file actually exists
     if (!fs.existsSync(download.downloadPath)) {
@@ -261,13 +270,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Get file size to check if it's a valid file
-    const stats = fs.statSync(download.downloadPath);
-    if (stats.size === 0) {
-      return res.status(500).json({ error: "Downloaded file is empty" });
+    let stats;
+    try {
+      stats = fs.statSync(download.downloadPath);
+      if (stats.size === 0) {
+        console.error(`Empty file found: ${download.downloadPath}`);
+        return res.status(500).json({ error: "Downloaded file is empty" });
+      }
+      console.log(`File exists with size: ${stats.size} bytes`);
+    } catch (error) {
+      console.error(`Error checking file stats: ${error}`);
+      return res.status(500).json({ error: "Error accessing file" });
     }
     
+    // For HEAD requests, we just need to respond with a success status
+    if (isHeadRequest) {
+      console.log(`HEAD request successful for: ${downloadId}`);
+      return res.status(200).end();
+    }
+    
+    // For GET requests, serve the file
     console.log(`Serving file: ${download.downloadPath}, size: ${stats.size} bytes`);
     
+    // Get video info to determine filename
     storage.getVideoInfo(download.videoId)
       .then(videoInfo => {
         let fileName = `youtube-video-${download.videoId}.mp4`;
@@ -275,43 +300,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fileName = `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
         }
         
+        console.log(`Using filename: ${fileName} for download`);
+        
         // Set headers for file download
         res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
         res.setHeader("Content-Type", "video/mp4");
         res.setHeader("Content-Length", stats.size);
         
-        // Stream file to client
-        const fileStream = fs.createReadStream(download.downloadPath);
-        
-        // Handle errors during streaming
-        fileStream.on('error', (err) => {
-          console.error(`Error streaming file: ${err.message}`);
-          if (!res.headersSent) {
-            res.status(500).json({ error: "Error streaming file" });
-          } else {
-            res.end();
-          }
-        });
-        
-        // Pipe the file to the response
-        fileStream.pipe(res);
-        
-        // Delete file and clean up after sending
-        fileStream.on("end", () => {
-          console.log(`Finished streaming file: ${download.downloadPath}`);
-          // Use setTimeout to ensure file is fully sent before deletion
-          setTimeout(() => {
-            try {
-              if (fs.existsSync(download.downloadPath)) {
-                fs.unlinkSync(download.downloadPath);
-                console.log(`Deleted file: ${download.downloadPath}`);
-              }
-              activeDownloads.delete(downloadId);
-            } catch (error) {
-              console.error("Error cleaning up download:", error);
+        // Create a read stream for the file
+        try {
+          const fileStream = fs.createReadStream(download.downloadPath);
+          
+          // Handle errors during streaming
+          fileStream.on('error', (err) => {
+            console.error(`Error streaming file: ${err.message}`);
+            if (!res.headersSent) {
+              res.status(500).json({ error: "Error streaming file" });
+            } else {
+              res.end();
             }
-          }, 1000);
-        });
+          });
+          
+          // Track bytes sent
+          let bytesSent = 0;
+          fileStream.on('data', (chunk) => {
+            bytesSent += chunk.length;
+            // Log progress for large files
+            if (stats.size > 10 * 1024 * 1024 && bytesSent % (5 * 1024 * 1024) === 0) { // log every 5MB
+              console.log(`Download progress: ${Math.round((bytesSent / stats.size) * 100)}%`);
+            }
+          });
+          
+          // Pipe the file to the response
+          fileStream.pipe(res);
+          
+          // Delete file and clean up after sending
+          fileStream.on("end", () => {
+            console.log(`Finished streaming file: ${download.downloadPath}`);
+            // Use setTimeout to ensure file is fully sent before deletion
+            setTimeout(() => {
+              try {
+                if (fs.existsSync(download.downloadPath)) {
+                  fs.unlinkSync(download.downloadPath);
+                  console.log(`Deleted file: ${download.downloadPath}`);
+                }
+              } catch (error) {
+                console.error("Error cleaning up download:", error);
+              }
+            }, 2000); // Wait longer before deleting
+          });
+          
+          // Even if the download finishes successfully, keep the download info in the map for a while
+          // This helps if the browser makes a second request
+          setTimeout(() => {
+            console.log(`Removing download ${downloadId} from active downloads`);
+            activeDownloads.delete(downloadId);
+          }, 10000); // Keep for 10 seconds after serving
+        } catch (error) {
+          console.error(`Error creating file stream: ${error}`);
+          return res.status(500).json({ error: "Could not read the file" });
+        }
       })
       .catch(error => {
         console.error("Error serving download:", error);
