@@ -151,8 +151,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const videoInfo = storage.getVideoInfo(download.videoId);
         
         if (videoInfo) {
-          const selectedFormat = videoInfo.formats.find(f => f.format_id === req.query.formatId);
-          const extension = selectedFormat?.ext || "mp4";
+          // We don't need to find the format here since we've already determined the file path
+          // Just use mp4 as default extension
+          const extension = "mp4";
           
           // Generate file name
           const fileName = `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.${extension}`;
