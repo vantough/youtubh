@@ -2,6 +2,7 @@ import { useState } from "react";
 import Header from "@/components/Header";
 import UrlInput from "@/components/UrlInput";
 import VideoPreview from "@/components/VideoPreview";
+import DirectDownload from "@/components/DirectDownload";
 import Instructions from "@/components/Instructions";
 import Footer from "@/components/Footer";
 import LoadingIndicator from "@/components/LoadingIndicator";
@@ -54,6 +55,7 @@ export default function Home() {
           />
         )}
         
+        <DirectDownload />
         <Instructions />
         <Footer />
       </div>

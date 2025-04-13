@@ -280,8 +280,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           alternativeFile = path.join(fileDir, matchingFiles[0].name);
           console.log(`Found alternative file: ${alternativeFile}`);
         }
-      } catch (err) {
-        console.error(`Error looking for alternative files: ${err.message}`);
+      } catch (err: unknown) {
+        console.error(`Error looking for alternative files: ${err instanceof Error ? err.message : "Unknown error"}`);
       }
       
       if (!alternativeFile) {
@@ -376,5 +376,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
   });
 
+  // API route to get a list of available downloaded files
+  app.get("/api/videos/available-files", (req, res) => {
+    try {
+      const tempDir = path.join(process.cwd(), "temp");
+      const files = fs.readdirSync(tempDir)
+        .filter(file => file.endsWith('.mp4') && !file.includes('.part-') && 
+                !file.includes('.f') && !file.includes('.temp'))
+        .map(file => {
+          const stats = fs.statSync(path.join(tempDir, file));
+          const fileSizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
+          
+          return {
+            name: file,
+            size: `${fileSizeInMB} MB`
+          };
+        })
+        .sort((a, b) => {
+          // Sort by newest first (based on timestamp in filename)
+          const timeA = parseInt(a.name.split('-')[2]?.split('.')[0] || '0', 10);
+          const timeB = parseInt(b.name.split('-')[2]?.split('.')[0] || '0', 10);
+          return timeB - timeA;
+        });
+      
+      res.json({ files });
+    } catch (error) {
+      console.error("Error getting available files:", error instanceof Error ? error.message : "Unknown error");
+      res.status(500).json({ error: "Failed to get available files" });
+    }
+  });
+  
+  // API route to directly download a specific file
+  app.get("/api/videos/direct-download/:filename", (req, res) => {
+    try {
+      const { filename } = req.params;
+      const filePath = path.join(process.cwd(), "temp", filename);
+      
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      
+      const stats = fs.statSync(filePath);
+      if (stats.size === 0) {
+        return res.status(500).json({ error: "File is empty" });
+      }
+      
+      console.log(`Direct serving file: ${filePath}, size: ${stats.size} bytes`);
+      
+      // Set headers for file download
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Type", "video/mp4");
+      res.setHeader("Content-Length", stats.size);
+      
+      // Stream file to client
+      const fileStream = fs.createReadStream(filePath);
+      fileStream.pipe(res);
+      
+      // Don't delete the file after direct download
+    } catch (error) {
+      console.error("Error direct downloading file:", error instanceof Error ? error.message : "Unknown error");
+      res.status(500).json({ error: "Failed to download file" });
+    }
+  });
+  
   return httpServer;
 }
