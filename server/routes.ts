@@ -5,6 +5,8 @@ import { getYouTubeVideoInfo, downloadYouTubeVideo, formatDuration } from "./you
 import path from "path";
 import fs from "fs";
 import { nanoid } from "nanoid";
+import * as objectStorage from "./object-storage";
+import { log } from "./vite";
 
 // Track active downloads and their progress
 const activeDownloads = new Map<string, {
@@ -20,6 +22,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const tempDir = path.join(process.cwd(), "temp");
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
+  }
+  
+  // Initialize object storage bucket
+  try {
+    const bucketName = "youtube-downloader-bucket";
+    await objectStorage.createBucketIfNotExists(bucketName);
+    log(`Object storage bucket initialized: ${bucketName}`, "storage");
+  } catch (error) {
+    log(`Failed to initialize object storage: ${error instanceof Error ? error.message : "Unknown error"}`, "storage");
   }
 
   // API route to get video info
