@@ -248,22 +248,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // API route to serve downloaded file
   app.get("/api/videos/download/:downloadId", (req, res) => {
     const { downloadId } = req.params;
-    const download = activeDownloads.get(downloadId);
+    console.log(`Download request received for ID: ${downloadId}`);
     
+    const download = activeDownloads.get(downloadId);
     if (!download) {
-      return res.status(404).json({ error: "Download not found" });
+      console.error(`Download ${downloadId} not found in active downloads map`);
+      return res.status(404).json({ error: "Download not found - please try downloading again" });
     }
     
     // Check if the file actually exists
     if (!fs.existsSync(download.downloadPath)) {
       console.error(`File not found at path: ${download.downloadPath}`);
-      return res.status(404).json({ error: "Download file not found on server" });
+      
+      // Try finding the file with a similar name pattern
+      const fileDir = path.dirname(download.downloadPath);
+      const fileBaseName = path.basename(download.downloadPath);
+      const filePrefix = fileBaseName.split('-').slice(0, 2).join('-');
+      
+      console.log(`Looking for alternative files with prefix: ${filePrefix} in ${fileDir}`);
+      let alternativeFile = null;
+      
+      try {
+        const files = fs.readdirSync(fileDir);
+        // Find the most recent mp4 file matching the pattern
+        const matchingFiles = files
+          .filter(f => f.startsWith(filePrefix) && f.endsWith('.mp4') && !f.includes('.part-'))
+          .map(f => ({ name: f, stats: fs.statSync(path.join(fileDir, f)) }))
+          .sort((a, b) => b.stats.mtime.getTime() - a.stats.mtime.getTime());
+          
+        if (matchingFiles.length > 0) {
+          alternativeFile = path.join(fileDir, matchingFiles[0].name);
+          console.log(`Found alternative file: ${alternativeFile}`);
+        }
+      } catch (err) {
+        console.error(`Error looking for alternative files: ${err.message}`);
+      }
+      
+      if (!alternativeFile) {
+        return res.status(404).json({ error: "Download file not found on server - please try downloading again" });
+      }
+      
+      // Use the alternative file instead
+      download.downloadPath = alternativeFile;
     }
     
     // Get file size to check if it's a valid file
-    const stats = fs.statSync(download.downloadPath);
-    if (stats.size === 0) {
-      return res.status(500).json({ error: "Downloaded file is empty" });
+    let stats;
+    try {
+      stats = fs.statSync(download.downloadPath);
+      if (stats.size === 0) {
+        console.error(`File is empty: ${download.downloadPath}`);
+        return res.status(500).json({ error: "Downloaded file is empty - please try downloading again" });
+      }
+    } catch (err) {
+      console.error(`Error checking file stats: ${err.message}`);
+      return res.status(500).json({ error: "Error accessing download file - please try downloading again" });
     }
     
     console.log(`Serving file: ${download.downloadPath}, size: ${stats.size} bytes`);
@@ -275,42 +314,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fileName = `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
         }
         
+        console.log(`Setting filename for download: ${fileName}`);
+        
         // Set headers for file download
         res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
         res.setHeader("Content-Type", "video/mp4");
         res.setHeader("Content-Length", stats.size);
         
-        // Stream file to client
+        // Create a read stream with appropriate error handling
         const fileStream = fs.createReadStream(download.downloadPath);
         
         // Handle errors during streaming
         fileStream.on('error', (err) => {
           console.error(`Error streaming file: ${err.message}`);
           if (!res.headersSent) {
-            res.status(500).json({ error: "Error streaming file" });
+            res.status(500).json({ error: "Error streaming file - please try downloading again" });
           } else {
             res.end();
           }
         });
         
+        // Set up timeout for the response
+        res.setTimeout(120000, () => {
+          console.log('Response timeout - client may have disconnected');
+          res.end();
+        });
+        
         // Pipe the file to the response
         fileStream.pipe(res);
         
-        // Delete file and clean up after sending
+        // When download completes, clean up
         fileStream.on("end", () => {
           console.log(`Finished streaming file: ${download.downloadPath}`);
+          
           // Use setTimeout to ensure file is fully sent before deletion
+          // This is important for large files
           setTimeout(() => {
             try {
-              if (fs.existsSync(download.downloadPath)) {
-                fs.unlinkSync(download.downloadPath);
-                console.log(`Deleted file: ${download.downloadPath}`);
-              }
-              activeDownloads.delete(downloadId);
+              // Check if we should delete the file (not for now - keep for debugging)
+              // if (fs.existsSync(download.downloadPath)) {
+              //   fs.unlinkSync(download.downloadPath);
+              //   console.log(`Deleted file: ${download.downloadPath}`);
+              // }
+              
+              // We'll keep the download in the active downloads map for a short while
+              // in case the user needs to download again
+              setTimeout(() => {
+                activeDownloads.delete(downloadId);
+                console.log(`Removed download ${downloadId} from active downloads map`);
+              }, 300000); // Remove from active downloads after 5 minutes
+              
             } catch (error) {
-              console.error("Error cleaning up download:", error);
+              console.error("Error in post-download cleanup:", error);
             }
-          }, 1000);
+          }, 5000); // Wait 5 seconds before cleanup
         });
       })
       .catch(error => {

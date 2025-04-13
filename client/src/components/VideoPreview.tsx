@@ -175,25 +175,26 @@ export default function VideoPreview({
     
     // Create an anchor element and trigger download
     const downloadUrl = `/api/videos/download/${downloadId}`;
+    console.log(`Starting file download from: ${downloadUrl}`);
     
-    // Use an anchor to trigger the download
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = fileName || 'youtube-video.mp4'; // Use filename from server or fallback
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Use an iframe to trigger the download
+    // This often works better than the anchor approach for large files
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = downloadUrl;
+    document.body.appendChild(iframe);
     
-    // Reset download state for next download
-    setDownloadComplete(false);
-    setDownloadId(null);
-    setFileName(null);
-    setShowProgress(false);
-    
+    // Show toast to inform user 
     toast({
       title: "Download started",
-      description: "Your video download should start automatically.",
+      description: "Your video should begin downloading in a few seconds. If nothing happens, try right-clicking the green button and select 'Save link as...'",
+      duration: 5000,
     });
+    
+    // Remove iframe after a few seconds
+    setTimeout(() => {
+      document.body.removeChild(iframe);
+    }, 5000);
   };
   
   const handleDownload = async () => {
@@ -327,9 +328,20 @@ export default function VideoPreview({
           </div>
           
           {downloadComplete && downloadId && (
-            <div className="mt-3 p-2 rounded bg-green-50 border border-green-200 flex items-center text-green-600">
-              <CheckCircle className="h-5 w-5 mr-2 flex-shrink-0" />
-              <span className="text-sm font-medium">Video processing complete! Click the green button above to download to your computer.</span>
+            <div className="mt-3 p-2 rounded bg-green-50 border border-green-200">
+              <div className="flex items-center text-green-600 mb-2">
+                <CheckCircle className="h-5 w-5 mr-2 flex-shrink-0" />
+                <span className="text-sm font-medium">Video processing complete! Click the green button above to download to your computer.</span>
+              </div>
+              <div className="text-xs text-gray-600 ml-7">
+                If the download doesn't start automatically, you can <a 
+                  href={`/api/videos/download/${downloadId}`} 
+                  download={fileName || 'youtube-video.mp4'}
+                  className="text-blue-600 hover:underline"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >click here</a> to download directly.
+              </div>
             </div>
           )}
         </div>
