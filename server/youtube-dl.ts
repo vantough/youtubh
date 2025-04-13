@@ -58,16 +58,23 @@ export async function downloadYouTubeVideo(
     console.log(`Output path: ${outputPath}`);
     
     // Start downloading with progress tracking
-    // youtubedl-exec has different flags than we expected
+    // When downloading, we need to specify that we want both video and audio
     const downloader = youtubedl.exec(url, {
       output: outputPath,
-      format: formatId,
-      // Don't use progress flag as it doesn't exist
+      // Use format-specific download with audio - This ensures we get both video and audio streams
+      format: formatId + "+bestaudio[ext=m4a]/best",
+      // Merge video and audio streams into a single file
+      mergeOutputFormat: "mp4",
+      // Important: Force enabling the postprocessor for proper audio/video merging
+      postprocessorArgs: "ffmpeg:-c:v copy -c:a aac -b:a 192k",
+      // Cache to improve speed
       cacheDir: './youtube-dl-cache',
       // Add rate limit to make it more stable
-      limitRate: '1M',
+      limitRate: '2M',
       // Add retry options
-      retries: 10
+      retries: 10,
+      // Log verbose information for debugging
+      verbose: true
     });
 
     if (!downloader.stdout || !downloader.stderr) {
