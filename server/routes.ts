@@ -167,8 +167,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Start the download process
-      // Start the download process. The progress callback will be used to update the
-      // progress for the client. Note: Download isn't truly complete at 100%.
+      // The progress callback will be used to update the progress for the client. 
+      // Note: Download isn't truly complete at 100%.
       // We need to keep track of both download completion AND file processing.
       downloadYouTubeVideo(
         videoId, 
@@ -198,7 +198,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               percent: adjustedPercent
             });
           }
-        }
+        },
+        isMP3  // Pass the isMP3 parameter here
       )
       .then(() => {
         // This is called after the entire process is complete (download + ffmpeg merging)
@@ -311,9 +312,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Get the file name for the download
         storage.getVideoInfo(download.videoId)
           .then(videoInfo => {
+            // Determine the extension based on the file path
+            const isMP3 = download.downloadPath.endsWith('.mp3');
+            const extension = isMP3 ? '.mp3' : '.mp4';
+            
             const fileName = videoInfo && videoInfo.title 
-              ? `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.mp4` 
-              : `youtube-video-${download.videoId}.mp4`;
+              ? `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}${extension}` 
+              : `youtube-video-${download.videoId}${extension}`;
               
             console.log(`Sending completion event for ${downloadId} with filename: ${fileName}`);
             
@@ -329,9 +334,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .catch(error => {
             console.error(`Error finalizing download ${downloadId}:`, error);
             
+            // Determine the extension based on the file path
+            const isMP3 = download.downloadPath.endsWith('.mp3');
+            const extension = isMP3 ? '.mp3' : '.mp4';
+            
             res.write(`data: ${JSON.stringify({ 
               percent: 100, 
-              fileName: `youtube-video-${download.videoId}.mp4`,
+              fileName: `youtube-video-${download.videoId}${extension}`,
               completed: true 
             })}\n\n`);
             
@@ -411,16 +420,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Get video info to determine filename
     storage.getVideoInfo(download.videoId)
       .then(videoInfo => {
-        let fileName = `youtube-video-${download.videoId}.mp4`;
+        // Determine the file extension based on the actual file path
+        const isMP3 = download.downloadPath.endsWith('.mp3');
+        const extension = isMP3 ? '.mp3' : '.mp4';
+        const contentType = isMP3 ? 'audio/mpeg' : 'video/mp4';
+        
+        let fileName = `youtube-video-${download.videoId}${extension}`;
         if (videoInfo && videoInfo.title) {
-          fileName = `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
+          fileName = `${videoInfo.title.replace(/[^a-z0-9]/gi, '_')}${extension}`;
         }
         
         console.log(`Using filename: ${fileName} for download`);
         
         // Set headers for file download
         res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-        res.setHeader("Content-Type", "video/mp4");
+        res.setHeader("Content-Type", contentType);
         res.setHeader("Content-Length", stats.size);
         
         // Create a read stream for the file
