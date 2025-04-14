@@ -29,6 +29,7 @@ export default function VideoPreview({
   const [downloadComplete, setDownloadComplete] = useState(false);
   const [downloadId, setDownloadId] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [isMP3Download, setIsMP3Download] = useState(false);
   const { toast } = useToast();
 
   // Set initial resolution when video data loads
@@ -156,14 +157,17 @@ export default function VideoPreview({
             }
             
             console.log("Updated download state:", { 
-              downloadComplete: true, 
+              downloadComplete: true,
+              isMP3: isMP3Download,
               downloadId,
-              fileName: data.fileName || 'youtube-video.mp4'
+              fileName: data.fileName || (isMP3Download ? 'youtube-audio.mp3' : 'youtube-video.mp4')
             });
             
             toast({
               title: "Processing complete",
-              description: "Your video is ready to download to your computer. Click the green button below.",
+              description: isMP3Download 
+                ? "Your MP3 audio is ready to download to your computer. Click the green button below."
+                : "Your video is ready to download to your computer. Click the green button below.",
               duration: 5000,
             });
           }, 300);
@@ -253,7 +257,9 @@ export default function VideoPreview({
         
         toast({
           title: "Download started",
-          description: "Your video should begin downloading soon.",
+          description: isMP3Download 
+            ? "Your MP3 audio should begin downloading soon."
+            : "Your video should begin downloading soon.",
         });
       })
       .catch(error => {
@@ -283,6 +289,54 @@ export default function VideoPreview({
       });
   };
   
+  const handleMP3Download = async () => {
+    // If user is already downloading something, don't start a new download
+    if (isDownloading) return;
+    
+    // Reset previous download info
+    setDownloadComplete(false);
+    setDownloadId(null);
+    setFileName(null);
+    
+    // Set MP3 download mode
+    setIsMP3Download(true);
+    setIsDownloading(true);
+    setShowProgress(true);
+    updateDownloadProgress(0);
+    
+    try {
+      const res = await apiRequest("POST", "/api/videos/download", { 
+        videoId: videoData.id,
+        isMP3: true
+      });
+      
+      const data = await res.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      if (data.downloadId) {
+        setDownloadId(data.downloadId);
+        const eventSource = startDownloadEventSource(data.downloadId);
+        
+        // Clean up event source when component unmounts
+        return () => {
+          eventSource.close();
+        };
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to start MP3 download";
+      toast({
+        variant: "destructive",
+        title: "MP3 Download Error",
+        description: errorMessage,
+      });
+      setIsDownloading(false);
+      setShowProgress(false);
+    }
+  };
+
   const handleDownload = async () => {
     // If download is already complete, just trigger browser download
     if (downloadComplete && downloadId) {
@@ -297,6 +351,8 @@ export default function VideoPreview({
     setDownloadId(null);
     setFileName(null);
     
+    // Set video download mode (not MP3)
+    setIsMP3Download(false);
     setIsDownloading(true);
     setShowProgress(true);
     updateDownloadProgress(0);
@@ -304,7 +360,8 @@ export default function VideoPreview({
     try {
       const res = await apiRequest("POST", "/api/videos/download", { 
         videoId: videoData.id,
-        formatId: selectedFormat.format_id
+        formatId: selectedFormat.format_id,
+        isMP3: false
       });
       
       const data = await res.json();
@@ -400,7 +457,7 @@ export default function VideoPreview({
             </Select>
           </div>
           
-          <div className="flex flex-col sm:flex-row sm:items-center">
+          <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
             {downloadComplete && downloadId ? (
               <Button 
                 className="bg-green-600 hover:bg-green-700"
@@ -410,21 +467,32 @@ export default function VideoPreview({
                 <span>Save to your computer</span>
               </Button>
             ) : (
-              <Button 
-                className="bg-[#065FD4] hover:bg-blue-700"
-                onClick={handleDownload}
-                disabled={isDownloading}
-              >
-                <DownloadIcon className="h-5 w-5 mr-2" />
-                <span>
-                  {isDownloading 
-                    ? downloadProgress < 90 
-                      ? "Downloading..." 
-                      : "Merging audio & video..." 
-                    : "Download"
-                  }
-                </span>
-              </Button>
+              <>
+                <Button 
+                  className="bg-[#065FD4] hover:bg-blue-700"
+                  onClick={handleDownload}
+                  disabled={isDownloading}
+                >
+                  <DownloadIcon className="h-5 w-5 mr-2" />
+                  <span>
+                    {isDownloading 
+                      ? downloadProgress < 90 
+                        ? "Downloading..." 
+                        : "Merging audio & video..." 
+                      : "Download Video"
+                    }
+                  </span>
+                </Button>
+                
+                <Button 
+                  className="bg-[#FF0000] hover:bg-red-700"
+                  onClick={handleMP3Download}
+                  disabled={isDownloading}
+                >
+                  <DownloadIcon className="h-5 w-5 mr-2" />
+                  <span>Download MP3</span>
+                </Button>
+              </>
             )}
             
             <div className="mt-3 sm:mt-0 sm:ml-4 text-gray-600">
@@ -438,7 +506,12 @@ export default function VideoPreview({
           {downloadComplete && downloadId && (
             <div className="mt-3 p-2 rounded bg-green-50 border border-green-200 flex items-center text-green-600">
               <CheckCircle className="h-5 w-5 mr-2 flex-shrink-0" />
-              <span className="text-sm font-medium">Video processing complete! Click the green button above to download to your computer.</span>
+              <span className="text-sm font-medium">
+                {isMP3Download 
+                  ? "MP3 processing complete! Click the green button above to download to your computer."
+                  : "Video processing complete! Click the green button above to download to your computer."
+                }
+              </span>
             </div>
           )}
         </div>
@@ -449,9 +522,9 @@ export default function VideoPreview({
           <div className="mb-2 flex justify-between items-center">
             <span className="text-sm font-medium text-gray-600">
               {downloadProgress < 90 
-                ? "Downloading Video & Audio" 
+                ? isMP3Download ? "Downloading Audio" : "Downloading Video & Audio" 
                 : downloadProgress < 100 
-                  ? "Processing & Merging" 
+                  ? isMP3Download ? "Converting to MP3" : "Processing & Merging" 
                   : "Complete!"}
             </span>
             <span className="text-sm font-medium text-[#065FD4]">{downloadProgress}%</span>
@@ -460,7 +533,9 @@ export default function VideoPreview({
           
           {downloadProgress >= 90 && downloadProgress < 100 && (
             <div className="mt-2 text-xs text-gray-500">
-              This may take a moment as we merge the audio and video tracks for the best quality.
+              {isMP3Download 
+                ? "This may take a moment as we extract and convert the audio to MP3."
+                : "This may take a moment as we merge the audio and video tracks for the best quality."}
             </div>
           )}
         </div>
