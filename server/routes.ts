@@ -330,11 +330,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             res.end();
           })
           .finally(() => {
-            // Keep the download info for a little while to allow the browser to request the file
+            // Keep the download info for longer to allow the browser to request the file
+            // The user may take some time to click the download button
             setTimeout(() => {
               console.log(`Cleaning up download ${downloadId} from active downloads map`);
               activeDownloads.delete(downloadId);
-            }, 5000);
+            }, 5 * 60 * 1000); // Keep for 5 minutes instead of 5 seconds
           });
           
         return; // Don't end response here, it will be ended in the promise chain
@@ -458,11 +459,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           
           // Even if the download finishes successfully, keep the download info in the map for a while
-          // This helps if the browser makes a second request
+          // This helps if the browser makes a second request or if the first attempt fails
           setTimeout(() => {
             console.log(`Removing download ${downloadId} from active downloads`);
             activeDownloads.delete(downloadId);
-          }, 10000); // Keep for 10 seconds after serving
+          }, 60000); // Keep for 1 minute after serving successfully
         } catch (error) {
           console.error(`Error creating file stream: ${error}`);
           return res.status(500).json({ error: "Could not read the file" });

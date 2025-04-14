@@ -217,9 +217,22 @@ export default function VideoPreview({
     
     // Use fetch to check if the file is available first
     fetch(downloadUrl, { method: 'HEAD' })
-      .then(response => {
+      .then(async response => {
         if (!response.ok) {
-          throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+          // Try to get more detailed error information
+          let errorMsg = `Server returned ${response.status}: ${response.statusText}`;
+          
+          try {
+            // Attempt to parse JSON error message
+            const errorData = await response.json();
+            if (errorData && errorData.error) {
+              errorMsg = errorData.error;
+            }
+          } catch (e) {
+            // If we can't parse JSON, just use the default error message
+          }
+          
+          throw new Error(errorMsg);
         }
         
         // File exists and is accessible, trigger the download
@@ -245,11 +258,28 @@ export default function VideoPreview({
       })
       .catch(error => {
         console.error("Download error:", error);
+        
+        // Show a more helpful error message to the user
         toast({
           variant: "destructive",
           title: "Download Error",
-          description: "Could not download the file. The server may have removed it or it doesn't exist.",
+          description: error.message || "Could not download the file. The server may have removed it or the download timed out. Please try downloading again.",
         });
+        
+        // If the error is because the file was removed (download timeout), suggest trying again
+        if (error.message && error.message.includes("not found")) {
+          toast({
+            title: "Try Again",
+            description: "Your download may have timed out. Try downloading the video again.",
+            duration: 10000,
+          });
+          
+          // Reset the download state so the user can try again
+          setDownloadComplete(false);
+          setDownloadId(null);
+          setFileName(null);
+          setShowProgress(false);
+        }
       });
   };
   
