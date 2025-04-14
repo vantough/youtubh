@@ -129,10 +129,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // API route to download video
   app.post("/api/videos/download", async (req, res) => {
     try {
-      const { videoId, formatId } = req.body;
+      const { videoId, formatId, isMP3 = false } = req.body;
       
-      if (!videoId || !formatId) {
-        return res.status(400).json({ error: "Video ID and format ID are required" });
+      if (!videoId) {
+        return res.status(400).json({ error: "Video ID is required" });
+      }
+      
+      // formatId is only required for video downloads
+      if (!isMP3 && !formatId) {
+        return res.status(400).json({ error: "Format ID is required for video downloads" });
       }
 
       // Get video info from storage
@@ -147,9 +152,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Create path for downloaded file with timestamp to avoid conflicts
       const timestamp = Date.now();
-      const downloadPath = path.join(tempDir, `${videoId}-${formatId}-${timestamp}.mp4`);
+      // Use .mp3 extension for MP3 downloads, otherwise .mp4
+      const fileExt = isMP3 ? '.mp3' : '.mp4';
+      const formatIdPart = isMP3 ? 'mp3' : formatId;
+      const downloadPath = path.join(tempDir, `${videoId}-${formatIdPart}-${timestamp}${fileExt}`);
       
-      console.log(`Starting download process for ${videoId} with format ${formatId} to ${downloadPath}`);
+      console.log(`Starting ${isMP3 ? 'MP3' : 'video'} download process for ${videoId} ${isMP3 ? '' : `with format ${formatId}`} to ${downloadPath}`);
       
       // Initialize download tracking
       activeDownloads.set(downloadId, {
@@ -164,7 +172,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // We need to keep track of both download completion AND file processing.
       downloadYouTubeVideo(
         videoId, 
-        formatId, 
+        formatId || '', // formatId can be empty for MP3 downloads
         downloadPath,
         (progress) => {
           // Update the download progress

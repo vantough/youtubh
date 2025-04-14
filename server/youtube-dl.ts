@@ -50,12 +50,13 @@ export async function downloadYouTubeVideo(
   videoId: string, 
   formatId: string, 
   outputPath: string,
-  progressCallback: ProgressCallback
+  progressCallback: ProgressCallback,
+  isMP3: boolean = false
 ): Promise<void> {
   try {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
     
-    console.log(`Starting download for video ${videoId} with format ${formatId}`);
+    console.log(`Starting download for ${isMP3 ? 'MP3 audio' : 'video'} ${videoId} ${isMP3 ? '' : `with format ${formatId}`}`);
     console.log(`Output path: ${outputPath}`);
     
     // Start downloading with progress tracking
@@ -68,15 +69,9 @@ export async function downloadYouTubeVideo(
       console.error("Error ensuring temp directory exists:", error);
     }
     
-    // When downloading, we need to specify that we want both video and audio
-    const downloader = youtubedl.exec(url, {
+    // Different options for MP3 vs. video download
+    const downloaderOptions: any = {
       output: outputPath,
-      // Use format-specific download with audio - This ensures we get both video and audio streams
-      format: formatId + "+bestaudio[ext=m4a]/best",
-      // Merge video and audio streams into a single file
-      mergeOutputFormat: "mp4",
-      // Important: Force enabling the postprocessor for proper audio/video merging
-      postprocessorArgs: "ffmpeg:-c:v copy -c:a aac -b:a 192k",
       // Cache to improve speed
       cacheDir: './youtube-dl-cache',
       // Avoid rate limiting errors
@@ -85,11 +80,32 @@ export async function downloadYouTubeVideo(
       retries: 10,
       // Don't remove intermediate files on error to help debugging
       keepFragments: true,
-      // Enable all postprocessors
-      embedSubs: false,
       // Additional debugging
       verbose: true
-    });
+    };
+    
+    if (isMP3) {
+      // MP3 audio download options
+      downloaderOptions.extractAudio = true;
+      downloaderOptions.audioFormat = 'mp3';
+      downloaderOptions.audioQuality = 0; // 0 is best quality
+      // Use best audio format available
+      downloaderOptions.format = 'bestaudio';
+      // Some additional options specific to audio extraction
+      downloaderOptions.postprocessorArgs = 'ffmpeg:-q:a 0 -map a'; // High quality MP3
+    } else {
+      // Video download options
+      // Use format-specific download with audio - This ensures we get both video and audio streams
+      downloaderOptions.format = formatId + "+bestaudio[ext=m4a]/best";
+      // Merge video and audio streams into a single file
+      downloaderOptions.mergeOutputFormat = "mp4";
+      // Important: Force enabling the postprocessor for proper audio/video merging
+      downloaderOptions.postprocessorArgs = "ffmpeg:-c:v copy -c:a aac -b:a 192k";
+      // Enable all postprocessors
+      downloaderOptions.embedSubs = false;
+    }
+    
+    const downloader = youtubedl.exec(url, downloaderOptions);
 
     if (!downloader.stdout || !downloader.stderr) {
       throw new Error("Failed to create download process");
