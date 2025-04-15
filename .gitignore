@@ -4,3 +4,44 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Large files
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.flv
+*.wmv
+*.webm
+*.m4v
+*.mpg
+*.mpeg
+*.3gp
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Downloaded content
+downloads/
+*.part
+*.ytdl
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
